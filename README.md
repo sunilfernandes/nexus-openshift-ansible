@@ -5,7 +5,7 @@ A playbook which uses Ansible's OC module to connect to Openshift API to deploy 
 
 This playbook uses a deployment config which pulls the docker image "docker.io/sonatype/nexus3" and deploys it to a project specified in an Openshift cluster.
 
-After installation it uses a post-deploy step to create repositories using the nexus-functions script created by at Jorge Morales and Siamak Sadeghianfar from :
+After installation it uses a post-deploy step to create repositories using the nexus-functions script created by Jorge Morales and Siamak Sadeghianfar from :
 
 "https://raw.githubusercontent.com/OpenShiftDemos/nexus/master/scripts/nexus-functions"
 
