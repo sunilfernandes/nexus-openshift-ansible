@@ -22,13 +22,21 @@ openshift_cluster_url: <<Cluster URL goes here>>
 
 
 #Project related vars
+
 project_name: ansible-testproject
+
 project_description: "Ansible test project"
+
 nexus_service_name: nexus3
+
 nexus_version: "3.7.1"
+
 docker_repo: "docker.io/sonatype/nexus3"
+
 nexus_volume_size: 2Gi
+
 nexus_application_memory_size: 512Mi
+
 nexus_application_memory_size_limit: 2Gi
 
 Dependencies
