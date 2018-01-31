@@ -1,0 +1,258 @@
+---
+
+- name: Get OC token
+  command: oc whoami -t
+  register: oc_token
+
+- name: Create project
+  oc:
+    state: present
+    host: "{{ openshift_cluster_url }}"
+    port: 443
+    validate_certs: false
+    inline:
+      kind: ProjectRequest
+      metadata:
+        name: "{{ project_name }}"
+      displayName: "{{ project_description }}"
+      description: "{{ project_description }}"
+    token: "{{ oc_token.stdout }}"
+
+- name: Create Nexus PersistentVolumeClaim
+  oc:
+    state: present
+    host: "{{ openshift_cluster_url }}"
+    port: 443
+    validate_certs: false
+    inline:
+      kind: PersistentVolumeClaim
+      metadata:
+        namespace: "{{ project_name }}"
+        labels:
+          app: "{{ nexus_service_name }}"
+        name: "{{ nexus_service_name }}-pvc"
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: "{{ nexus_volume_size }}"
+    token: "{{ oc_token.stdout }}"
+
+- name: Create Nexus ImageStream
+  oc:
+    state: present
+    host: "{{ openshift_cluster_url }}"
+    port: 443
+    validate_certs: false
+    inline:
+      kind: ImageStream
+      metadata:
+        namespace: "{{ project_name }}"
+        labels:
+          app: "{{ nexus_service_name }}"
+        name: "{{ nexus_service_name }}"
+      spec:
+        lookupPolicy:
+          local: false
+        tags:
+        - from:
+            kind: DockerImage
+            name: "{{ docker_repo }}:{{ nexus_version }}"
+          importPolicy: {}
+          referencePolicy:
+            type: Source
+          name: "{{ nexus_version }}"
+    token: "{{ oc_token.stdout }}"
+
+- name: Create Nexus DeploymentConfig
+  oc:
+    state: present
+    host: "{{ openshift_cluster_url }}"
+    port: 443
+    validate_certs: false
+    inline:
+      kind: DeploymentConfig
+      apiVersion: v1
+      metadata:
+        namespace: "{{ project_name }}"
+        labels:
+          app: "{{ nexus_service_name }}"
+        name: "{{ nexus_service_name }}"
+      spec:
+        replicas: 1
+        deploymentconfig: "{{ nexus_service_name }}"
+        strategy:
+          recreateParams:
+            timeoutSeconds: 600
+            post:
+              failurePolicy: Abort
+              execNewPod:
+                containerName: "{{ nexus_service_name }}"
+                command:
+                  - "/bin/bash"
+                  - "-c"
+                  - "curl -o /tmp/nexus-functions -s https://raw.githubusercontent.com/OpenShiftDemos/nexus/master/scripts/nexus-functions; source /tmp/nexus-functions; add_nexus3_redhat_repos admin admin123 http://{{ nexus_service_name }}:8081"
+          type: Recreate
+        containers:
+        - env:
+          - name: CONTEXT_PATH
+            value: /
+          image: ''
+          imagePullPolicy: IfNotPresent
+          livenessProbe:
+            exec:
+              command:
+              - echo
+              - ok
+            failureThreshold: 3
+            initialDelaySeconds: 60
+            periodSeconds: 10
+            successThreshold: 1
+            timeoutSeconds: 1
+          name: "{{ nexus_service_name }}"
+          ports:
+            - containerPort: 8081
+              protocol: TCP
+          readinessProbe:
+            failureThreshold: 3
+            httpGet:
+              path: /
+              port: 8081
+              scheme: HTTP
+            initialDelaySeconds: 60
+            periodSeconds: 10
+            successThreshold: 1
+            timeoutSeconds: 1
+          resources:
+            limits:
+              memory: "{{ nexus_application_memory_size_limit }}"
+            requests:
+              memory: "{{ nexus_application_memory_size }}"
+          terminationMessagePath: /dev/termination-log
+          volumeMounts:
+          - mountPath: /nexus-data
+            name: "{{ nexus_service_name }}-data"
+        dnsPolicy: ClusterFirst
+        restartPolicy: Always
+        securityContext: {}
+        terminationGracePeriodSeconds: 30
+        volumes:
+        - name: "{{ nexus_service_name }}-data"
+          persistentVolumeClaim:
+            claimName: "{{ nexus_service_name }}-pvc"
+        template:
+          metadata:
+            labels:
+              deploymentconfig: "{{ nexus_service_name }}"
+          spec:
+            containers:
+              - env:
+                - name: CONTEXT_PATH
+                  value: /
+                image: "{{ docker_repo }}:{{ nexus_version }}"
+                imagePullPolicy: IfNotPresent
+                livenessProbe:
+                  exec:
+                    command:
+                      - echo
+                      - ok
+                  failureThreshold: 3
+                  initialDelaySeconds: 30
+                  periodSeconds: 10
+                  successThreshold: 1
+                  timeoutSeconds: 1
+                name: "{{ nexus_service_name }}"
+                ports:
+                  - containerPort: 8081
+                    protocol: TCP
+                readinessProbe:
+                  failureThreshold: 3
+                  httpGet:
+                    path: /
+                    port: 8081
+                    scheme: HTTP
+                  initialDelaySeconds: 30
+                  periodSeconds: 10
+                  successThreshold: 1
+                  timeoutSeconds: 1
+                resources:
+                  limits:
+                    memory: "{{ nexus_application_memory_size_limit }}"
+                  requests:
+                    memory: "{{ nexus_application_memory_size }}"
+                terminationMessagePath: /dev/termination-log
+                volumeMounts:
+                - mountPath: /nexus-data
+                  name: "{{ nexus_service_name }}-data"
+            dnsPolicy: ClusterFirst
+            restartPolicy: Always
+            schedulerName: default-scheduler
+            securityContext: {}
+            terminationGracePeriodSeconds: 30
+            volumes:
+              - name: "{{ nexus_service_name }}-data"
+                persistentVolumeClaim:
+                  claimName: "{{ nexus_service_name }}-pvc"
+          test: false
+          triggers:
+            - imageChangeParams:
+                automatic: true
+                containerNames:
+                  - "{{ nexus_service_name }}"
+                from:
+                  kind: ImageStreamTag
+                  name: "{{ nexus_service_name }}:{{ nexus_version }}"
+                  namespace: "{{ project_name }}"
+              type: ImageChange
+    token: "{{ oc_token.stdout }}"
+
+- name: Create Nexus Service
+  oc:
+    state: present
+    host: "{{ openshift_cluster_url }}"
+    port: 443
+    validate_certs: false
+    inline:
+      kind: Service
+      metadata:
+        namespace: "{{ project_name }}"
+        labels:
+          app: "{{ nexus_service_name }}"
+        name: "{{ nexus_service_name }}"
+      spec:
+        ports:
+        - name: 8081-tcp
+          port: 8081
+          protocol: TCP
+          targetPort: 8081
+        selector:
+          deploymentconfig: "{{ nexus_service_name }}"
+        sessionAffinity: None
+        type: ClusterIP
+    token: "{{ oc_token.stdout }}"
+
+- name: Create Nexus Route
+  oc:
+    state: present
+    host: "{{ openshift_cluster_url }}"
+    port: 443
+    validate_certs: false
+    inline:
+      kind: Route
+      metadata:
+        namespace: "{{ project_name }}"
+        labels:
+          app: "{{ nexus_service_name }}"
+        name: "{{ nexus_service_name }}"
+      spec:
+        port:
+          targetPort: 8081-tcp
+        to:
+          kind: Service
+          name: "{{ nexus_service_name }}"
+          weight: 100
+        tls:
+          termination: edge
+          insecureEdgeTerminationPolicy: Redirect
+    token: "{{ oc_token.stdout }}"
